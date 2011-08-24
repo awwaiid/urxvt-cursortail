@@ -7,6 +7,24 @@ use 5.010;
 
 # Based on the digital clock example
 
+# my $start_color = 255;
+# my $color_step = -1;
+# my $color_end = 234;
+# my $fade_speed = 0.01;
+
+# my $start_color = 196;
+# my $color_step = -36;
+# my $color_end = 16;
+my $fade_speed = 0.05;
+
+my $color_step = -1;
+my @color_list = qw(
+  18 18 19 19 20 20 21 27 33 39 45 51
+);
+  #16 16 17 17 18 18 19 20 21 27 33 39 45 51
+  #16 17 18 19 20 21 27 33 39 45 51
+my $color_end = 0;
+
 sub on_init {
    my ($self) = @_;
 
@@ -16,7 +34,7 @@ sub on_init {
    $self->{digital_clock_refresh} = urxvt::timer
                     ->new
                     ->start (1 + int urxvt::NOW)
-                    ->interval (0.1)
+                    ->interval ($fade_speed)
                     ->cb (sub { $self->want_refresh });
 
    ()
@@ -44,13 +62,13 @@ sub on_refresh_begin {
      my ($row, $col, $color, $original_color) = @$cell;
      my $r = $self->ROW_r($row)->[$col];
      $original_color //= urxvt::GET_BASEBG($r);
-     if($color < 16) {
+     if($color < $color_end) {
        $r = urxvt::SET_BGCOLOR($r, $original_color);
        $self->ROW_r($row, [$r], $col);
        next;
      } else {
-       $r = urxvt::SET_BGCOLOR($r, $color);
-       $color -= 36;
+       $r = urxvt::SET_BGCOLOR($r, $color_list[$color]);
+       $color += $color_step;
        $self->ROW_r($row, [$r], $col);
      }
      push @new_tail, [$row, $col, $color, $original_color];
@@ -81,7 +99,8 @@ sub on_key_press { # $term, $event, $keysym, $octets
   urxvt::warn "keysm: " . Dumper($keysm);
   my ($row, $col) = $self->screen_cur();
   urxvt::warn "row: $row\tcol: $col\n";
-  push @{ $self->{tail_cells} }, [$row, $col, 196];
+  # push @{ $self->{tail_cells} }, [$row, $col, $start_color];
+  push @{ $self->{tail_cells} }, [$row, $col, $#color_list];
   return ();
 }
 
