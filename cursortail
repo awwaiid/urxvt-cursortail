@@ -1,9 +1,10 @@
 #! perl
 
-use 5.010;
-
 # TEST:
 # urxvt -rv -tr -sh 30 -ls +sb -vb -fade 30 -fn "xft:Bitstream Vera Sans Mono:pixelsize=12" --urgentOnBell --perl-lib ./ -pe cursortail 
+
+use strict;
+use Data::Dumper;
 
 # Based on the digital clock example
 
@@ -19,68 +20,67 @@ my $fade_speed = 0.05;
 
 my $color_step = -1;
 my @color_list = qw(
-  18 18 19 19 20 20 21 27 33 39 45 51
+  19 19 19 20 20 20 21 21 27 33 39 45 51
 );
-  #16 16 17 17 18 18 19 20 21 27 33 39 45 51
-  #16 17 18 19 20 21 27 33 39 45 51
 my $color_end = 0;
 
 sub on_init {
-   my ($self) = @_;
+  my ($self) = @_;
 
-   $self->{tail_cells} = [];
+  $self->{tail_cells} = [];
 
-   # force a refresh every second
-   $self->{digital_clock_refresh} = urxvt::timer
-                    ->new
-                    ->start (1 + int urxvt::NOW)
-                    ->interval ($fade_speed)
-                    ->cb (sub { $self->want_refresh });
+  # force a refresh to do our fading
+  $self->{cursor_tail_refresh} = urxvt::timer
+    ->new
+    ->start (1 + int urxvt::NOW)
+    ->interval ($fade_speed)
+    ->cb (sub { $self->want_refresh });
 
-   ()
+  return ();
 }
 
 # before refreshing: replace upper right with the clock display
 sub on_refresh_begin {
-   my ($self) = @_;
+  my ($self) = @_;
 
-   # my $time = sprintf "%2d:%02d:%02d", (localtime urxvt::NOW)[2, 1, 0];
-   # my $xpos = $self->ncol - length $time;
+  #urxvt::warn("Tail: " . Dumper($self->{tail_cells}));
+  my @new_tail = ();
+  $self->{saved_rows} = [];
+  foreach my $cell (@{ $self->{tail_cells} }) {
+    my ($row, $col, $color, $original_rend, $original_text) = @$cell;
+    my $r = $self->ROW_r($row)->[$col];
+    my $t = substr($self->ROW_t($row),$col,1);
+    $original_rend = $r; # defined $original_rend ? $original_rend : $r;
+    $original_text = $t; # defined $original_text ? $original_text : $t;
+    # if($color < $color_end || $r != $original_rend || $t ne $original_text) {
+    if($color < $color_end) {
+      #if( $r ne $original_rend || $t ne $original_text) {
+      # urxvt::warn "rend: '$r' vs '$original_rend'\n";
+      # urxvt::warn "text: '$t' vs '$original_text' ($col)\n";
+      # $r = urxvt::SET_BGCOLOR($r, $original_rend);
+      # $self->ROW_r($row, [$original_rend], $col);
+      next;
+    } else {
+      $r = urxvt::SET_BGCOLOR($r, $color_list[$color]);
+      $color += $color_step;
+      $self->ROW_r($row, [$r], $col);
+      push @new_tail, [$row, $col, $color, $original_rend, $original_text];
+    }
+  }
+  $self->{tail_cells} = [ @new_tail ];
 
-   # $xpos >= 0
-      # or return;
-
-
-   # $self->{digital_clock_rend} = $self->ROW_r (0, [($r) x length $time], $xpos);
-   # $self->{digital_clock_text} = $self->ROW_t (0, $time, $xpos);
-
-   # -----
-
-   urxvt::warn("Tail: " . Dumper($self->{tail_cells}));
-   my @new_tail = ();
-   foreach my $cell (@{ $self->{tail_cells} }) {
-     my ($row, $col, $color, $original_color) = @$cell;
-     my $r = $self->ROW_r($row)->[$col];
-     $original_color //= urxvt::GET_BASEBG($r);
-     if($color < $color_end) {
-       $r = urxvt::SET_BGCOLOR($r, $original_color);
-       $self->ROW_r($row, [$r], $col);
-       next;
-     } else {
-       $r = urxvt::SET_BGCOLOR($r, $color_list[$color]);
-       $color += $color_step;
-       $self->ROW_r($row, [$r], $col);
-     }
-     push @new_tail, [$row, $col, $color, $original_color];
-   }
-   $self->{tail_cells} = [ @new_tail ];
-
-   return ();
+  return ();
 }
 
 # after refreshing: restore previous screen contents
 sub on_refresh_end {
    my ($self) = @_;
+
+   foreach my $cell (@{ $self->{tail_cells} }) {
+     my ($row, $col, $color, $original_rend, $original_text) = @$cell;
+     $self->ROW_r($row, [$original_rend], $col);
+     #$self->ROW_t($row, $original_text, $col);
+   }
 
    # exists $self->{digital_clock_text}
       # or return;
@@ -93,15 +93,24 @@ sub on_refresh_end {
 
 sub on_key_press { # $term, $event, $keysym, $octets
   my ($self, $event, $keysm, $octets) = @_;
-  use Data::Dumper;
-  urxvt::warn "keypress!\n";
-  urxvt::warn "event: " . Dumper($event);
-  urxvt::warn "keysm: " . Dumper($keysm);
+  # urxvt::warn "keypress!\n";
+  # urxvt::warn "event: " . Dumper($event);
+  # urxvt::warn "keysm: " . Dumper($keysm);
   my ($row, $col) = $self->screen_cur();
-  urxvt::warn "row: $row\tcol: $col\n";
+  # urxvt::warn "row: $row\tcol: $col\n";
   # push @{ $self->{tail_cells} }, [$row, $col, $start_color];
   push @{ $self->{tail_cells} }, [$row, $col, $#color_list];
   return ();
 }
 
+sub on_scroll_back {
+  my ($self, $offset) = @_;
+  # If we're scrolling... let's just skip this one.
+  pop @{ $self->{tail_cells} };
+}
+
+# sub on_add_lines {
+  # my ($term, $string) = @_;
+  # urxvt::warn "add_lines '$string'\n";
+# }
 
